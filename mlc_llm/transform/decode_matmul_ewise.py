@@ -39,8 +39,8 @@ def check_matmul(ctx: relax.transform.PatternCheckContext, target_kind: str) -> 
 
 def pattern_check(target_kind: str):
     def f_pattern_check(ctx: relax.transform.PatternCheckContext) -> bool:
-        if target_kind != "android" and not check_x_1dim(ctx):
-            return False
+        # if target_kind != "android" and not check_x_1dim(ctx):
+        #     return False
         return check_decoding(ctx) and check_matmul(ctx, target_kind)
 
     return f_pattern_check

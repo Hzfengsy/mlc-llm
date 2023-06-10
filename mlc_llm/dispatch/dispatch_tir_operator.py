@@ -14,7 +14,8 @@ class DispatchTIROperator:  # pylint: disable=too-few-public-methods
             from .gpt_neox import lookup
 
         elif model == "rwkv":
-            lookup = None
+            # lookup = None
+            from .rwkv import lookup
 
         else:
             raise ValueError(f"Model {model} not supported")

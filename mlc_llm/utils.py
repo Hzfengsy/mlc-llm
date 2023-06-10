@@ -127,7 +127,7 @@ def load_torch_pname2binname_map(
     bin_idx_path = os.path.join(model_path, "pytorch_model.bin.index.json")
     if os.path.isfile(bin_idx_path):
         # Multiple weight shards.
-        with open(bin_idx_path, "r") as f_torch_json:
+        with open(bin_idx_path, "r", encoding="utf-8") as f_torch_json:
             torch_bin_json = json.load(f_torch_json)
             pname2binname = torch_bin_json["weight_map"]
     else:

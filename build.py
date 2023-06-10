@@ -232,22 +232,15 @@ def mod_transform_before_build(
     args: argparse.Namespace,
 ) -> tvm.IRModule:
     """First-stage: Legalize ops and trace"""
+    model_names = [
+        "prefill",
+        "decode",
+        "create_kv_cache",
+        "softmax_with_temperature",
+        "get_metadata",
+    ]
     if ARGS.model.startswith("rwkv-"):
-        model_names = [
-            "decode",
-            "create_kv_cache",
-            "softmax_with_temperature",
-            "get_metadata",
-            "reset_kv_cache",
-        ]
-    else:
-        model_names = [
-            "prefill",
-            "decode",
-            "create_kv_cache",
-            "softmax_with_temperature",
-            "get_metadata",
-        ]
+        model_names.append("reset_kv_cache")
 
     if args.quantization.mode != "no":
         if ARGS.model.startswith("rwkv-"):
@@ -331,7 +324,9 @@ def build(mod_deploy: tvm.IRModule, args: argparse.Namespace) -> None:
                 )(mod_deploy)
             )
             mod_deploy = tvm.tir.transform.DefaultGPUSchedule()(mod_deploy)
-            mod_deploy = mlc_llm.transform.LiftTIRGlobalBufferAlloc()(mod_deploy)
+            mod_deploy = mlc_llm.transform.LiftTIRGlobalBufferAlloc()(
+                mod_deploy
+            )  # pylint: disable=not-callable
             mod_deploy = tvm.tir.transform.ForceNarrowIndexToInt32()(mod_deploy)
 
     if args.debug_load_script:

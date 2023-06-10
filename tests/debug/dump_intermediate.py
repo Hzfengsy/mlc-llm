@@ -21,14 +21,13 @@ class DumpInstrument:
             return
         if name.startswith("vm.builtin."):
             return
+        if not name.startswith("wkv"):
+            return
         if any(not isinstance(x, tvm.nd.NDArray) for x in args):
             return
 
         print(f"[{self.counter}][{name}]")
-        print(*args, sep="\n")
-        if self.counter == 6:
-            for i, arg in enumerate( args):
-                arg = arg.numpy().dump(f"tmp/{i}.pkl")
+        print(*args, sep="\n--------------------\n")
         self.counter += 1
 
 
@@ -99,7 +98,7 @@ def deploy_to_pipeline(args) -> None:
         prefill_func = None
 
     if inputs.shape[1] > 1 and prefill_func:
-        inputs = tvm.nd.array(inputs.numpy(), device=primary_device)
+        inputs = tvm.nd.array(inputs, device=primary_device)
         logits, kv_caches = prefill_func(inputs, seq_len_shape, kv_caches, const_params)
     else:
         for i in range(inputs.shape[1]):
@@ -129,6 +128,8 @@ def _parse_args():
     parsed.artifact_path = os.path.join(
         parsed.artifact_path, f"{parsed.model}-{parsed.quantization.name}"
     )
+
+    parsed.prompt = "\nThe following is a coherent verbose detailed conversation between a girl named Alice and her friend Bob. Alice is very intelligent, creative and friendly. Alice is unlikely to disagree with Bob, and Alice doesn't like to ask Bob questions. Alice likes to tell Bob a lot about herself and her opinions. Alice usually gives Bob kind, helpful and informative advices.\n\nBob: Hello Alice, how are you doing?\n\nAlice: Hi! Thanks, I'm fine. What about you?\n\nBob: I am fine. It's nice to see you. Look, here is a store selling tea and juice.\n\nAlice: Sure. Let's go inside. I would like to have some Mocha latte, which is my favourite!\n\nBob: What is it?\n\nAlice: Mocha latte is usually made with espresso, milk, chocolate, and frothed milk. Its flavors are frequently sweet.\n\nBob: Sounds tasty. I'll try it next time. Would you like to chat with me for a while?\n\nAlice: Of course! I'm glad to answer your questions or give helpful advices. You know, I am confident with my expertise. So please go ahead!\n\n"
 
     if parsed.primary_device == "auto":
         if tvm.cuda().exist:

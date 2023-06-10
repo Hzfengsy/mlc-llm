@@ -508,6 +508,12 @@ class LLMChat {
     }
 
     std::vector<int32_t> prompt_tokens = this->GetInputTokens();
+    // std::ostringstream os;
+    // for (int i = 0; i < prompt_tokens.size(); ++i) {
+    //   if (i != 0) os << ", ";
+    //   os << prompt_tokens[i];
+    // }
+    // LOG(INFO) << "prefill tokens =[" << os.str() << "]";
     int64_t token_len = static_cast<int64_t>(prompt_tokens.size());
     if (token_len == 0) return;
 
@@ -523,6 +529,14 @@ class LLMChat {
 
     this->prefill_total_time += static_cast<double>((tend - tstart).count()) / 1e9;
     this->prefill_total_tokens += token_len;
+    // // print first few logits for eyeballs
+    // std::ostringstream os;
+    // for (int i = 0; i < 10; ++i) {
+    //   if (i != 0) os << ", ";
+    //   os << static_cast<float*>(logits_on_cpu_->data)[i];
+    // }
+    // LOG(INFO) << "logits[:10] =[" << os.str() << "]";
+
     this->ProcessNextToken(next_token);
   }
 

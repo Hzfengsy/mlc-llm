@@ -131,7 +131,9 @@ class RWKVQuantize:
                 decoded_weight = self.builder_.emit_te(
                     decoding_func(self.dtype, self.mode), *encoded_weight
                 )
-                return relax.op.matmul(call.args[0], decoded_weight)
+                return relax.op.matmul(
+                    call.args[0], decoded_weight, out_dtype=call.attrs.out_dtype
+                )
 
             def visit_call_(self, op):
                 call = self.visit_expr_post_order(op)
