@@ -82,6 +82,8 @@ def wkv_func_after(
     dtype: str = "float32",
     out_dtype: str = "float16",
 ):
+    assert hidden_size % 32 == 0
+
     @T.prim_func
     def wkv_func(
         k: T.handle,
@@ -151,6 +153,7 @@ def wkv_func_after(
                     OutP[0, vi] = P_local[vi]
 
     return wkv_func
+
 
 def fused_multiply_subtract_multiply_add_before(hidden_size: int):
     # fmt: off

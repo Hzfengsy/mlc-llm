@@ -508,12 +508,6 @@ class LLMChat {
     }
 
     std::vector<int32_t> prompt_tokens = this->GetInputTokens();
-    // std::ostringstream os;
-    // for (int i = 0; i < prompt_tokens.size(); ++i) {
-    //   if (i != 0) os << ", ";
-    //   os << prompt_tokens[i];
-    // }
-    // LOG(INFO) << "prefill tokens =[" << os.str() << "]";
     int64_t token_len = static_cast<int64_t>(prompt_tokens.size());
     if (token_len == 0) return;
 
@@ -529,14 +523,6 @@ class LLMChat {
 
     this->prefill_total_time += static_cast<double>((tend - tstart).count()) / 1e9;
     this->prefill_total_tokens += token_len;
-    // // print first few logits for eyeballs
-    // std::ostringstream os;
-    // for (int i = 0; i < 10; ++i) {
-    //   if (i != 0) os << ", ";
-    //   os << static_cast<float*>(logits_on_cpu_->data)[i];
-    // }
-    // LOG(INFO) << "logits[:10] =[" << os.str() << "]";
-
     this->ProcessNextToken(next_token);
   }
 
@@ -767,9 +753,13 @@ class LLMChat {
     if (!logits_on_cpu_.defined()) {
       logits_on_cpu_ = logits_or_prob.CopyTo(DLDevice{kDLCPU, 0});
     } else {
-      ICHECK_EQ(logits_on_cpu_->shape[0], logits_or_prob->shape[0])
-          << "Expect size of logits remain unchanged";
-      logits_on_cpu_.CopyFrom(logits_or_prob);
+      ICHECK_EQ(logits_on_cpu_->ndim, logits_or_prob->ndim);
+      for (int i = 0; i < logits_on_cpu_->ndim; ++i) {
+        ICHECK_EQ(logits_on_cpu_->shape[i], logits_or_prob->shape[i])
+            << "Expect size of logits remain unchanged, but the " << i
+            << "-th dimension is changed";
+        logits_on_cpu_.CopyFrom(logits_or_prob);
+      }
     }
     TVMSynchronize(device_.device_type, device_.device_id, nullptr);
   }

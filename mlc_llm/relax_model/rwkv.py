@@ -454,6 +454,8 @@ class RWKVModel(nn.Module):
             eps=config.layer_norm_epsilon,
             name_prefix="out_ln",
         )
+        self.hidden_size = config.hidden_size
+        self.dtype = config.dtype
 
     def forward(self, input_ids: Expr, state: Expr) -> Tuple[Expr, List[Expr]]:
         hidden_states = self.embeddings(input_ids)
@@ -461,6 +463,15 @@ class RWKVModel(nn.Module):
         for _, layer in enumerate(self.blocks):
             hidden_states, layer_states = layer(hidden_states, state)
             states += layer_states
+        context_length = hidden_states.struct_info.shape[0]
+        if not is_one(context_length):
+            bb = relax.BlockBuilder.current()
+            gv = bb.add_func(create_last_x(self.hidden_size, self.dtype), "last_x")
+            hidden_states = nn.emit(
+                relax.call_tir(
+                    gv, [hidden_states], R.Tensor((1, self.hidden_size), self.dtype)
+                )
+            )
         hidden_states = self.ln_out(hidden_states)
         return hidden_states, states
 
