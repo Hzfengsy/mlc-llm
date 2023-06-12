@@ -271,6 +271,10 @@ def decoding_after_taking_func(sym: bool, group_size: int, nbit: int, mode: str,
 # fmt: on
 
 
+def is_one(x: tir.PrimExpr) -> bool:
+    return isinstance(x, tir.IntImm) and x.value == 1
+
+
 @tvm.transform.module_pass(opt_level=0, name="GroupQuantize")
 class GroupQuantize:
     def __init__(
@@ -314,14 +318,19 @@ class GroupQuantize:
                 self.mode = mode
                 self.storage_nbit = storage_nbit
                 self.dtype = dtype
+                self.skip_quantize_weights = []
 
             def transform(self) -> IRModule:
                 for global_var, func in self.mod.functions.items():
                     if not isinstance(func, relax.Function):
                         continue
-                    if not "num_input" in func.attrs:
+                    if func.attrs is None or not "num_input" in func.attrs:
                         continue
                     num_inputs = func.attrs["num_input"]
+                    if "skip_quantize_weights" in func.attrs:
+                        self.skip_quantize_weights = func.attrs["skip_quantize_weights"]
+                    else:
+                        self.skip_quantize_weights = []
                     for i in range(int(num_inputs), len(func.params)):
                         self._params.add(func.params[i])
                     updated_func = self.visit_expr(func)
@@ -362,41 +371,52 @@ class GroupQuantize:
             def quantize_matmul(self, call: relax.Call):
                 x = call.args[0]
                 call_arg = self.lookup_binding(call.args[1])
-                if call_arg.op == tvm.ir.Op.get("relax.permute_dims"):
+                if call_arg is not None:
                     if (
-                        call_arg.attrs.axes is not None
-                        or call_arg.args[0].struct_info.ndim != 2
-                        or call_arg.args[0] not in self._params
+                        call_arg.op == tvm.ir.Op.get("relax.permute_dims")
+                        and call_arg.attrs.axes is None
                     ):
+                        weight = call_arg.args[0]
+                        is_linear = True
+                    else:
                         return call
-                    transpose_output = x.struct_info.shape[-2] != 1
+                else:
+                    is_linear = False
+                    weight = call.args[1]
+                conditions = [
+                    weight.struct_info.ndim == 2,
+                    weight in self._params,
+                    weight not in self.skip_quantize_weights,
+                ]
+                if not all(conditions):
+                    return call
+                transpose_output = is_one(x.struct_info.shape[-2]) and is_linear
 
-                    decode_args = self.emit_encoding(call_arg.args[0], transpose=True)
-                    quantized_permute_dims = self.builder_.call_te(
-                        decoding_func(
-                            self.sym,
-                            self.group_size,
-                            self.nbit,
-                            self.mode,
-                            self.storage_nbit,
-                            call_arg.args[0].struct_info.shape[-1],
-                            data_transposed=True,
-                            transpose_output=transpose_output,
-                            dtype=self.dtype,
-                        ),
-                        *decode_args,
-                        primfunc_name_hint="decode"
+                decode_args = self.emit_encoding(weight, transpose=True)
+                quantized_permute_dims = self.builder_.call_te(
+                    decoding_func(
+                        self.sym,
+                        self.group_size,
+                        self.nbit,
+                        self.mode,
+                        self.storage_nbit,
+                        weight.struct_info.shape[-1],
+                        data_transposed=True,
+                        transpose_output=transpose_output,
+                        dtype=self.dtype,
+                    ),
+                    *decode_args,
+                    primfunc_name_hint="decode"
+                )
+                if transpose_output or not is_linear:
+                    quantized_permute_dims = self.builder_.emit(
+                        relax.op.permute_dims(quantized_permute_dims)
                     )
-                    if transpose_output:
-                        quantized_permute_dims = self.builder_.emit(
-                            relax.op.permute_dims(quantized_permute_dims)
-                        )
-                    return relax.op.matmul(
-                        call.args[0],
-                        quantized_permute_dims,
-                        out_dtype=call.attrs.out_dtype,
-                    )
-                return call
+                return relax.op.matmul(
+                    x,
+                    quantized_permute_dims,
+                    out_dtype=call.attrs.out_dtype,
+                )
 
             def quantize_take(self, call: relax.Call):
                 if (

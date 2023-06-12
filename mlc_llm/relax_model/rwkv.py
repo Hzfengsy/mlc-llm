@@ -533,8 +533,12 @@ def create_func(
 
     mod = bb.get()
     gv = mod.get_global_var(kind_name)
-    bb.update_func(gv, mod[gv].with_attr("num_input", 3))
-
+    bb.update_func(
+        gv,
+        mod[gv]
+        .with_attr("num_input", 3)
+        .with_attr("skip_quantize_weights", [model.head_weight]),
+    )
     return pidx2pname
 
 

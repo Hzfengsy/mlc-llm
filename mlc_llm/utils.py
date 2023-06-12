@@ -44,7 +44,7 @@ quantization_dict = {
         name="q0f16", mode="no", sym=False, storage_nbit=-1, model_dtype="float16"
     ),
     "q8f16_0": Quantization(
-        name="q8f16_0", mode="uint8", sym=False, storage_nbit=-1, model_dtype="float16"
+        name="q8f16_0", mode="int8", sym=True, storage_nbit=32, model_dtype="float16"
     ),
 }
 
