@@ -363,8 +363,8 @@ class RWKV_Attention(nn.Module):
         xr = nn.emit(x * self.time_mix_r + saved_x * (ones - self.time_mix_r))
 
         r = nn.emit(op.sigmoid(op.matmul(xr, self.receptance_weight)))
-        k = nn.emit(op.matmul(xk, self.key_weight, out_dtype="float32"))
-        v = nn.emit(op.matmul(xv, self.value_weight, out_dtype="float32"))
+        k = nn.emit(op.astype(op.matmul(xk, self.key_weight), "float32"))
+        v = nn.emit(op.astype(op.matmul(xv, self.value_weight), "float32"))
 
         gv = bb.add_func(create_wkv_func(hidden_size, "float32", self.dtype), "wkv")
         ret = nn.emit(

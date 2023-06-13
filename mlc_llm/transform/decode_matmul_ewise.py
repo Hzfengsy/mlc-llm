@@ -21,7 +21,9 @@ def check_decoding(ctx: relax.transform.PatternCheckContext) -> bool:
     return gv.name_hint.startswith("decode")
 
 
-def check_matmul(ctx: relax.transform.PatternCheckContext, target_kind: str) -> bool:
+def check_matmul(
+    ctx: relax.transform.PatternCheckContext, target_kind: str, model: str
+) -> bool:
     call = ctx.annotated_expr["matmul"]
     if not isinstance(call, relax.Call):
         return False
@@ -34,20 +36,31 @@ def check_matmul(ctx: relax.transform.PatternCheckContext, target_kind: str) -> 
     is_NT_matmul = gv.name_hint.startswith("NT_matmul") or gv.name_hint.startswith(
         "fused_NT_matmul"
     )
-    return (is_matmul or is_NT_matmul) if target_kind == "android" else is_matmul
+    return (
+        (is_matmul or is_NT_matmul)
+        if target_kind == "android" or model.startswith("rwkv-")
+        else is_matmul
+    )
 
 
-def pattern_check(target_kind: str):
+def pattern_check(target_kind: str, model: str):
     def f_pattern_check(ctx: relax.transform.PatternCheckContext) -> bool:
-        # if target_kind != "android" and not check_x_1dim(ctx):
-        #     return False
-        return check_decoding(ctx) and check_matmul(ctx, target_kind)
+        # TODO(mlc-team): enable fusion for prefill function in all models
+        if (
+            target_kind != "android"
+            and not model.startswith("rwkv-")
+            and not check_x_1dim(ctx)
+        ):
+            return False
+        return check_decoding(ctx) and check_matmul(ctx, target_kind, model)
 
     return f_pattern_check
 
 
-def decode_matmul_pattern(match_ewise: int, n_aux_tensor: int, target_kind: str):
-    assert n_aux_tensor == 1 or n_aux_tensor == 2 or n_aux_tensor == 4
+def decode_matmul_pattern(
+    match_ewise: int, n_aux_tensor: int, target_kind: str, model: str
+):
+    assert n_aux_tensor == 1 or n_aux_tensor == 2
 
     w_scaled = wildcard()
     aux_tensors = [wildcard(), wildcard(), wildcard(), wildcard()]
@@ -71,28 +84,27 @@ def decode_matmul_pattern(match_ewise: int, n_aux_tensor: int, target_kind: str)
         "w_scaled": w_scaled,
     }
 
-    return matmul, annotations, pattern_check(target_kind)
+    return matmul, annotations, pattern_check(target_kind, model)
 
 
 @tvm.transform.module_pass(opt_level=0, name="FuseDecodeMatmulEwise")
 class FuseDecodeMatmulEwise:
-    def __init__(self, dtype: str, target_kind: str) -> None:
+    def __init__(self, dtype: str, target_kind: str, model: str) -> None:
         self.dtype = dtype
         self.target_kind = target_kind
+        self.model = model
 
     def transform_module(
         self, mod: IRModule, ctx: tvm.transform.PassContext
     ) -> IRModule:
-        for n_aux_tensor in [1, 2, 4]:
+        for n_aux_tensor in [1, 2]:
             for match_ewise in [0, 1, 2, 6]:
-                if match_ewise == 6 and n_aux_tensor != 4:
-                    continue
                 mod = relax.transform.FuseOpsByPattern(
                     [
                         (
                             "decode_matmul",
                             *decode_matmul_pattern(
-                                match_ewise, n_aux_tensor, self.target_kind
+                                match_ewise, n_aux_tensor, self.target_kind, self.model
                             ),
                         )
                     ]

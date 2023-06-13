@@ -427,7 +427,7 @@ def main():
         mod=args.mod,
         target=args.target,
         work_dir=args.work_dir,
-        max_trials_global=2000,
+        max_trials_global=1500,
         # max_trials_per_task=2,
         runner=ms.runner.LocalRunner(timeout_sec=10),
         # runner=ms.runner.RPCRunner(
