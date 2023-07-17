@@ -6791,7 +6791,7 @@ def fused_fused_decode4_NT_matmul9_after(lv19: T.Buffer((T.int64(22016), T.int64
 
 @T.prim_func
 def fused_fused_decode3_fused_NT_matmul8_add1(lv567: T.Buffer((T.int64(4096), T.int64(512)), "uint32"), lv568: T.Buffer((T.int64(4096), T.int64(128)), "float16"), lv566: T.Buffer((T.int64(1), T.int64(1), T.int64(4096)), "float16"), lv1613: T.Buffer((T.int64(1), T.int64(1), T.int64(4096)), "float16"), p_output0_intermediate: T.Buffer((T.int64(1), T.int64(1), T.int64(4096)), "float16")):
-    T.func_attr({"tir.is_scheduled": 1, "tir.noalias": T.bool(True)})
+    T.func_attr({"tir.noalias": T.bool(True)})
     # with T.block("root"):
     p_output0_intermediate_1 = T.alloc_buffer((T.int64(4096), T.int64(4096)), "float16")
     var_NT_matmul_intermediate = T.alloc_buffer((T.int64(1), T.int64(1), T.int64(4096)), "float16")
@@ -6819,7 +6819,7 @@ def fused_fused_decode3_fused_NT_matmul8_add1(lv567: T.Buffer((T.int64(4096), T.
 
 @T.prim_func
 def fused_fused_decode3_fused_NT_matmul8_add1_after(lv567: T.Buffer((T.int64(4096), T.int64(512)), "uint32"), lv568: T.Buffer((T.int64(4096), T.int64(128)), "float16"), lv566: T.Buffer((T.int64(1), T.int64(1), T.int64(4096)), "float16"), lv1613: T.Buffer((T.int64(1), T.int64(1), T.int64(4096)), "float16"), p_output0_intermediate: T.Buffer((T.int64(1), T.int64(1), T.int64(4096)), "float16")):
-    T.func_attr({"tir.noalias": T.bool(True)})
+    T.func_attr({"tir.is_scheduled": 1, "tir.noalias": T.bool(True)})
     # with T.block("root"):
     var_NT_matmul_intermediate_local = T.alloc_buffer((T.int64(1), T.int64(1), T.int64(4096)), "float16", scope="local")
     var_NT_matmul_intermediate_rf_local = T.alloc_buffer((T.int64(32), T.int64(1), T.int64(1), T.int64(4096)), "float16", scope="local")
@@ -6882,17 +6882,13 @@ def fused_fused_decode3_fused_NT_matmul8_add1_after(lv567: T.Buffer((T.int64(409
                     with T.init():
                         var_NT_matmul_intermediate_local[T.int64(0), T.int64(0), v0] = T.float16(0)
                     var_NT_matmul_intermediate_local[T.int64(0), T.int64(0), v0] = var_NT_matmul_intermediate_local[T.int64(0), T.int64(0), v0] + var_NT_matmul_intermediate_rf_local[vax1_2, T.int64(0), T.int64(0), v0]
-        for ax0_fused_0 in range(T.int64(1)):
-            for ax0_fused_1 in T.thread_binding(T.int64(2), thread="threadIdx.y"):
-                for ax0_fused_2 in T.thread_binding(T.int64(32), thread="threadIdx.x"):
-                    with T.block("T_add"):
-                        v_ax0 = T.axis.spatial(T.int64(1), T.int64(0))
-                        v_ax1 = T.axis.spatial(T.int64(1), T.int64(0))
-                        v_ax2 = T.axis.spatial(T.int64(4096), ax0_0 * T.int64(2) + (ax0_fused_0 * T.int64(64) + ax0_fused_1 * T.int64(32) + ax0_fused_2))
-                        T.where((ax0_fused_0 * T.int64(2) + ax0_fused_1) * T.int64(32) + ax0_fused_2 < T.int64(2))
-                        T.reads(lv1613[v_ax0, v_ax1, v_ax2], var_NT_matmul_intermediate_local[v_ax0, v_ax1, v_ax2])
-                        T.writes(p_output0_intermediate[v_ax0, v_ax1, v_ax2])
-                        p_output0_intermediate[v_ax0, v_ax1, v_ax2] = lv1613[v_ax0, v_ax1, v_ax2] + var_NT_matmul_intermediate_local[v_ax0, v_ax1, v_ax2]
+            with T.block("T_add"):
+                v_ax0 = T.axis.spatial(T.int64(1), T.int64(0))
+                v_ax1 = T.axis.spatial(T.int64(1), T.int64(0))
+                v_ax2 = T.axis.spatial(T.int64(4096), ax0_0 * T.int64(2) + ax0_1)
+                T.reads(lv1613[v_ax0, v_ax1, v_ax2], var_NT_matmul_intermediate_local[v_ax0, v_ax1, v_ax2])
+                T.writes(p_output0_intermediate[v_ax0, v_ax1, v_ax2])
+                p_output0_intermediate[v_ax0, v_ax1, v_ax2] = lv1613[v_ax0, v_ax1, v_ax2] + var_NT_matmul_intermediate_local[v_ax0, v_ax1, v_ax2]
 
 @T.prim_func
 def fused_fused_decode2_NT_matmul6(lv555: T.Buffer((T.int64(12288), T.int64(512)), "uint32"), lv556: T.Buffer((T.int64(12288), T.int64(128)), "float16"), lv1615: T.Buffer((T.int64(1), T.int64(1), T.int64(4096)), "float16"), var_NT_matmul_intermediate: T.Buffer((T.int64(1), T.int64(1), T.int64(12288)), "float16")):
@@ -6984,7 +6980,7 @@ def fused_fused_decode2_NT_matmul6_after(lv555: T.Buffer((T.int64(12288), T.int6
 tir_profiler_dispatch_dict = {
     get_dict_key(fused_fused_decode4_NT_matmul9): fused_fused_decode4_NT_matmul9_after,
     get_dict_key(fused_fused_decode2_NT_matmul6): fused_fused_decode2_NT_matmul6_after,
-    get_dict_key(fused_fused_decode3_fused_NT_matmul8_add1): fused_fused_decode3_fused_NT_matmul8_add1,
+    get_dict_key(fused_fused_decode3_fused_NT_matmul8_add1): fused_fused_decode3_fused_NT_matmul8_add1_after,
 }
 
 
