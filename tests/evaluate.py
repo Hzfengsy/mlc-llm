@@ -4,6 +4,7 @@
 import argparse
 import json
 import os
+import pickle
 import time
 from typing import List, Tuple
 
@@ -40,6 +41,12 @@ class LibCompare(LibCompareVMInstrument):
         super().__init__(mod, device, verbose=False)
         self.time_eval_results = {}
 
+    def dump_data(self, name: str, args: List[tvm.nd.NDArray]):
+        path = f"dist/dump/data/{name}"
+        os.makedirs(path, exist_ok=True)
+        args = [arg.numpy() for arg in args]
+        pickle.dump(args, open(f"{path}/args.pkl", "wb"))
+
     def compare(
         self,
         name: str,
@@ -51,11 +58,13 @@ class LibCompare(LibCompareVMInstrument):
             return
         if name not in self.time_eval_results:
             super().compare(name, ref_args, new_args, ret_indices)
+            # self.dump_data(name, new_args)
             res = self.mod.time_evaluator(
                 name,
                 dev=self.device,
                 number=100,
                 repeat=3,
+                cache_flush_bytes=8192 * 1024,
             )(*new_args).mean
             shapes = [arg.shape for arg in new_args]
             total_bytes = sum(

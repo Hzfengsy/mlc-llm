@@ -10,6 +10,9 @@ class DispatchTIROperator:  # pylint: disable=too-few-public-methods
         if model == "llama":
             from .llama import lookup
 
+        elif model == "llama-profiling":
+            from .llama import profiling_lookup as lookup
+
         elif model == "gpt_neox":
             from .gpt_neox import lookup
 
@@ -21,7 +24,7 @@ class DispatchTIROperator:  # pylint: disable=too-few-public-methods
 
         elif model == "rwkv":
             lookup = None
-        
+
         elif model == "gptj":
             lookup = None
 

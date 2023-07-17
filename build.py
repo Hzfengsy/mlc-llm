@@ -367,6 +367,7 @@ def build(mod_deploy: tvm.IRModule, args: argparse.Namespace) -> None:
             else tvm.target.Target("apple/m1-gpu-restricted")
         )
         with db, dispatch_target:
+            mod_deploy = mlc_llm.dispatch.DispatchTIROperator("llama-profiling")(mod_deploy)
             mod_deploy = dl.ApplyDefaultSchedule(dl.gpu.Matmul())(mod_deploy)
             mod_deploy = dl.ApplyDefaultSchedule(dl.gpu.DecodeGEMV())(mod_deploy)
             mod_deploy = dl.ApplyDefaultSchedule(dl.gpu.Reduction())(mod_deploy)
