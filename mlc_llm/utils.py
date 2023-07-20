@@ -442,6 +442,7 @@ def parse_target(args: argparse.Namespace) -> None:
                     "supports_8bit_buffer": 1,
                     "supports_16bit_buffer": 1,
                     "supports_storage_buffer_storage_class": 1,
+                    "supports_vector16": 1,
                 }
             ),
             host="llvm",

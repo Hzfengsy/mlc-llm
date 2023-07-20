@@ -6977,10 +6977,113 @@ def fused_fused_decode2_NT_matmul6_after(lv555: T.Buffer((T.int64(12288), T.int6
                         var_NT_matmul_intermediate[T.int64(0), T.int64(0), v0] = T.float16(0)
                     var_NT_matmul_intermediate[T.int64(0), T.int64(0), v0] = var_NT_matmul_intermediate[T.int64(0), T.int64(0), v0] + var_NT_matmul_intermediate_rf_local[vax1_2, T.int64(0), T.int64(0), v0]
 
+@T.prim_func
+def fused_fused_decode5_fused_NT_matmul10_add1(lv575: T.Buffer((T.int64(4096), T.int64(1376)), "uint32"), lv576: T.Buffer((T.int64(4096), T.int64(344)), "float16"), lv574: T.Buffer((T.int64(1), T.int64(1), T.int64(11008)), "float16"), lv570: T.Buffer((T.int64(1), T.int64(1), T.int64(4096)), "float16"), p_output0_intermediate: T.Buffer((T.int64(1), T.int64(1), T.int64(4096)), "float16")):
+    T.func_attr({"tir.noalias": T.bool(True)})
+    # with T.block("root"):
+    p_output0_intermediate_1 = T.alloc_buffer((T.int64(4096), T.int64(11008)), "float16")
+    var_NT_matmul_intermediate = T.alloc_buffer((T.int64(1), T.int64(1), T.int64(4096)), "float16")
+    for i, j in T.grid(T.int64(4096), T.int64(11008)):
+        with T.block("decode"):
+            v_i, v_j = T.axis.remap("SS", [i, j])
+            T.reads(lv575[v_i, v_j // T.int64(8)], lv576[v_i, v_j // T.int64(32)])
+            T.writes(p_output0_intermediate_1[v_i, v_j])
+            p_output0_intermediate_1[v_i, v_j] = (T.Cast("float16", T.bitwise_and(T.shift_right(lv575[v_i, v_j // T.int64(8)], T.Cast("uint32", v_j % T.int64(8)) * T.uint32(4)), T.uint32(15))) - T.float16(7)) * lv576[v_i, v_j // T.int64(32)]
+    for i0, i1, i2, k in T.grid(T.int64(1), T.int64(1), T.int64(4096), T.int64(11008)):
+        with T.block("NT_matmul"):
+            v_i0, v_i1, v_i2, v_k = T.axis.remap("SSSR", [i0, i1, i2, k])
+            T.reads(lv574[v_i0, v_i1, v_k], p_output0_intermediate_1[v_i2, v_k])
+            T.writes(var_NT_matmul_intermediate[v_i0, v_i1, v_i2])
+            with T.init():
+                var_NT_matmul_intermediate[v_i0, v_i1, v_i2] = T.float16(0)
+            var_NT_matmul_intermediate[v_i0, v_i1, v_i2] = var_NT_matmul_intermediate[v_i0, v_i1, v_i2] + lv574[v_i0, v_i1, v_k] * p_output0_intermediate_1[v_i2, v_k]
+    for ax0, ax1, ax2 in T.grid(T.int64(1), T.int64(1), T.int64(4096)):
+        with T.block("T_add"):
+            v_ax0, v_ax1, v_ax2 = T.axis.remap("SSS", [ax0, ax1, ax2])
+            T.reads(lv570[v_ax0, v_ax1, v_ax2], var_NT_matmul_intermediate[v_ax0, v_ax1, v_ax2])
+            T.writes(p_output0_intermediate[v_ax0, v_ax1, v_ax2])
+            p_output0_intermediate[v_ax0, v_ax1, v_ax2] = lv570[v_ax0, v_ax1, v_ax2] + var_NT_matmul_intermediate[v_ax0, v_ax1, v_ax2]
+
+@T.prim_func
+def fused_fused_decode5_fused_NT_matmul10_add1_after(lv575: T.Buffer((T.int64(4096), T.int64(1376)), "uint32"), lv576: T.Buffer((T.int64(4096), T.int64(344)), "float16"), lv574: T.Buffer((T.int64(1), T.int64(1), T.int64(11008)), "float16"), lv570: T.Buffer((T.int64(1), T.int64(1), T.int64(4096)), "float16"), p_output0_intermediate: T.Buffer((T.int64(1), T.int64(1), T.int64(4096)), "float16")):
+    T.func_attr({"tir.is_scheduled": 1, "tir.noalias": T.bool(True)})
+    # with T.block("root"):
+    var_NT_matmul_intermediate_local = T.alloc_buffer((T.int64(1), T.int64(1), T.int64(4096)), "float16", scope="local")
+    var_NT_matmul_intermediate_rf_local = T.alloc_buffer((T.int64(32), T.int64(1), T.int64(1), T.int64(4096)), "float16", scope="local")
+    lv574_shared = T.alloc_buffer((T.int64(1), T.int64(1), T.int64(11008)), "float16", scope="shared")
+    lv574_shared_local = T.alloc_buffer((T.int64(1), T.int64(1), T.int64(11008)), "float16", scope="local")
+    lv576_shared = T.alloc_buffer((T.int64(4096), T.int64(344)), "float16", scope="shared")
+    for ax0_0 in T.thread_binding(T.int64(128), thread="blockIdx.x"):
+        for ax0_1 in T.thread_binding(T.int64(32), thread="threadIdx.y"):
+            for ax1_2 in T.thread_binding(T.int64(32), thread="threadIdx.x", annotations={"pragma_auto_unroll_max_step": 256, "pragma_unroll_explicit": 1}):
+                for ax0_fused_0 in range(T.int64(2)):
+                    for ax0_fused_1 in T.thread_binding(T.int64(32), thread="threadIdx.y"):
+                        for ax0_fused_2 in T.thread_binding(T.int64(32), thread="threadIdx.x"):
+                            for ax0_fused_3 in T.vectorized(T.int64(8)):
+                                with T.block("lv574_shared"):
+                                    v0 = T.axis.spatial(T.int64(1), T.int64(0))
+                                    v1 = T.axis.spatial(T.int64(1), T.int64(0))
+                                    v2 = T.axis.spatial(T.int64(11008), ax0_fused_0 * T.int64(8192) + ax0_fused_1 * T.int64(256) + ax0_fused_2 * T.int64(8) + ax0_fused_3)
+                                    T.where(((ax0_fused_0 * T.int64(32) + ax0_fused_1) * T.int64(32) + ax0_fused_2) * T.int64(8) + ax0_fused_3 < T.int64(11008))
+                                    T.reads(lv574[v0, v1, v2])
+                                    T.writes(lv574_shared[v0, v1, v2])
+                                    lv574_shared[v0, v1, v2] = lv574[v0, v1, v2]
+                for ax0_ax1_fused_0 in range(T.int64(3)):
+                    for ax0_ax1_fused_1 in T.thread_binding(T.int64(32), thread="threadIdx.y"):
+                        for ax0_ax1_fused_2 in T.thread_binding(T.int64(32), thread="threadIdx.x"):
+                            for ax0_ax1_fused_3 in T.vectorized(T.int64(4)):
+                                with T.block("lv576_shared"):
+                                    v0 = T.axis.spatial(T.int64(4096), ax0_0 * T.int64(32) + (ax0_ax1_fused_0 * T.int64(4096) + ax0_ax1_fused_1 * T.int64(128) + ax0_ax1_fused_2 * T.int64(4) + ax0_ax1_fused_3) // T.int64(344))
+                                    v1 = T.axis.spatial(T.int64(344), (ax0_ax1_fused_0 * T.int64(4096) + ax0_ax1_fused_1 * T.int64(128) + ax0_ax1_fused_2 * T.int64(4) + ax0_ax1_fused_3) % T.int64(344))
+                                    T.where(((ax0_ax1_fused_0 * T.int64(32) + ax0_ax1_fused_1) * T.int64(32) + ax0_ax1_fused_2) * T.int64(4) + ax0_ax1_fused_3 < T.int64(11008))
+                                    T.reads(lv576[v0, v1])
+                                    T.writes(lv576_shared[v0, v1])
+                                    lv576_shared[v0, v1] = lv576[v0, v1]
+                with T.block("NT_matmul_rf_init"):
+                    vax1_2 = T.axis.spatial(T.int64(32), ax1_2)
+                    v0 = T.axis.spatial(T.int64(4096), ax0_0 * T.int64(32) + ax0_1)
+                    T.reads()
+                    T.writes(var_NT_matmul_intermediate_rf_local[vax1_2, T.int64(0), T.int64(0), v0])
+                    var_NT_matmul_intermediate_rf_local[vax1_2, T.int64(0), T.int64(0), v0] = T.float16(0)
+                for ax1_0, ax1_1 in T.grid(T.int64(43), T.int64(1)):
+                    for ax0 in T.vectorized(T.int64(8)):
+                        with T.block("lv574_shared_local"):
+                            v0 = T.axis.spatial(T.int64(1), T.int64(0))
+                            v1 = T.axis.spatial(T.int64(1), T.int64(0))
+                            v2 = T.axis.spatial(T.int64(11008), ax1_0 * T.int64(256) + ax1_2 * T.int64(8) + ax0)
+                            T.reads(lv574_shared[v0, v1, v2])
+                            T.writes(lv574_shared_local[v0, v1, v2])
+                            lv574_shared_local[v0, v1, v2] = lv574_shared[v0, v1, v2]
+                    for ax1_3 in range(T.int64(8)):
+                        with T.block("NT_matmul_rf_update"):
+                            vax1_2 = T.axis.spatial(T.int64(32), ax1_2)
+                            v0 = T.axis.spatial(T.int64(4096), ax0_0 * T.int64(32) + ax0_1)
+                            vax1_0, vax1_1, vax1_3 = T.axis.remap("RRR", [ax1_0, ax1_1, ax1_3])
+                            T.reads(var_NT_matmul_intermediate_rf_local[vax1_2, T.int64(0), T.int64(0), v0], lv574_shared_local[T.int64(0), T.int64(0), vax1_0 * T.int64(256) + vax1_1 * T.int64(256) + vax1_2 * T.int64(8) + vax1_3], lv575[v0, (vax1_0 * T.int64(256) + vax1_1 * T.int64(256) + vax1_2 * T.int64(8) + vax1_3) // T.int64(8)], lv576_shared[v0, vax1_0 * T.int64(8) + vax1_1 * T.int64(8) + (vax1_2 * T.int64(8) + vax1_3) // T.int64(32)])
+                            T.writes(var_NT_matmul_intermediate_rf_local[vax1_2, T.int64(0), T.int64(0), v0])
+                            var_NT_matmul_intermediate_rf_local[vax1_2, T.int64(0), T.int64(0), v0] = var_NT_matmul_intermediate_rf_local[vax1_2, T.int64(0), T.int64(0), v0] + lv574_shared_local[T.int64(0), T.int64(0), vax1_0 * T.int64(256) + vax1_1 * T.int64(256) + vax1_2 * T.int64(8) + vax1_3] * ((T.Cast("float16", T.bitwise_and(T.shift_right(lv575[v0, (vax1_0 * T.int64(256) + vax1_1 * T.int64(256) + vax1_2 * T.int64(8) + vax1_3) // T.int64(8)], T.Cast("uint32", (vax1_0 * T.int64(256) + vax1_1 * T.int64(256) + vax1_2 * T.int64(8) + vax1_3) % T.int64(8)) * T.uint32(4)), T.uint32(15))) - T.float16(7)) * lv576_shared[v0, vax1_0 * T.int64(8) + vax1_1 * T.int64(8) + (vax1_2 * T.int64(8) + vax1_3) // T.int64(32)])
+            for ax0 in T.thread_binding(T.int64(32), thread="threadIdx.x"):
+                with T.block("NT_matmul"):
+                    vax1_2 = T.axis.reduce(T.int64(32), ax0)
+                    v0 = T.axis.spatial(T.int64(4096), ax0_0 * T.int64(32) + ax0_1)
+                    T.reads(var_NT_matmul_intermediate_rf_local[vax1_2, T.int64(0), T.int64(0), v0])
+                    T.writes(var_NT_matmul_intermediate_local[T.int64(0), T.int64(0), v0])
+                    with T.init():
+                        var_NT_matmul_intermediate_local[T.int64(0), T.int64(0), v0] = T.float16(0)
+                    var_NT_matmul_intermediate_local[T.int64(0), T.int64(0), v0] = var_NT_matmul_intermediate_local[T.int64(0), T.int64(0), v0] + var_NT_matmul_intermediate_rf_local[vax1_2, T.int64(0), T.int64(0), v0]
+            with T.block("T_add"):
+                v_ax0 = T.axis.spatial(T.int64(1), T.int64(0))
+                v_ax1 = T.axis.spatial(T.int64(1), T.int64(0))
+                v_ax2 = T.axis.spatial(T.int64(4096), ax0_0 * T.int64(32) + ax0_1)
+                T.reads(lv570[v_ax0, v_ax1, v_ax2], var_NT_matmul_intermediate_local[v_ax0, v_ax1, v_ax2])
+                T.writes(p_output0_intermediate[v_ax0, v_ax1, v_ax2])
+                p_output0_intermediate[v_ax0, v_ax1, v_ax2] = lv570[v_ax0, v_ax1, v_ax2] + var_NT_matmul_intermediate_local[v_ax0, v_ax1, v_ax2]
+
 tir_profiler_dispatch_dict = {
     get_dict_key(fused_fused_decode4_NT_matmul9): fused_fused_decode4_NT_matmul9_after,
     get_dict_key(fused_fused_decode2_NT_matmul6): fused_fused_decode2_NT_matmul6_after,
     get_dict_key(fused_fused_decode3_fused_NT_matmul8_add1): fused_fused_decode3_fused_NT_matmul8_add1_after,
+    get_dict_key(fused_fused_decode5_fused_NT_matmul10_add1): fused_fused_decode5_fused_NT_matmul10_add1_after,
 }
 
 

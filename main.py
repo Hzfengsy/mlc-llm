@@ -332,7 +332,7 @@ def apply_update(mod):
 
     i, j = sch.get_loops(block=b2)
     jo, j0, tx, inner = sch.split(
-        j, [None, 4, tx_len, vec_len], preserve_unit_iters=True
+        j, [None, 1, tx_len, vec_len], preserve_unit_iters=True
     )
     rf = sch.rfactor(tx, factor_axis=0)
     i, jo, j0, tx, inner = sch.get_loops(rf)
@@ -345,8 +345,8 @@ def apply_update(mod):
     sch.annotate(block_or_loop=tx, ann_key="pragma_unroll_explicit", ann_val=1)
 
     shared_A = sch.cache_read(rf, 0, "shared")
-    sch.compute_at(shared_A, jo)
-    fused = sch.fuse(*sch.get_loops(shared_A)[4:])
+    sch.compute_at(shared_A, tx)
+    fused = sch.fuse(*sch.get_loops(shared_A)[3:])
     _, _ty, _tx, _vec = sch.split(fused, factors=[None, ty_len, tx_len, vec_len])
     sch.bind(_ty, "threadIdx.y")
     sch.bind(_tx, "threadIdx.x")
@@ -356,13 +356,14 @@ def apply_update(mod):
     sch.compute_at(local_A, j0)
     sch.vectorize(sch.get_loops(local_A)[-1])
 
-    shared_S = sch.cache_read(rf, 2, "shared")
-    sch.compute_at(shared_S, tx)
-    fused = sch.fuse(*sch.get_loops(shared_S)[3:])
-    _, _ty, _tx, _vec = sch.split(fused, factors=[None, ty_len, tx_len, 4])
-    sch.bind(_ty, "threadIdx.y")
-    sch.bind(_tx, "threadIdx.x")
-    sch.vectorize(_vec)
+    # shared_S = sch.cache_read(rf, 2, "shared")
+    # sch.compute_at(shared_S, tx)
+    # fused = sch.fuse(*sch.get_loops(shared_S)[3:])
+    # _, _ty, _tx, _vec = sch.split(fused, factors=[None, ty_len, tx_len, vec_len // 2])
+    # # _, _ty, _tx, _vec = sch.split(fused, factors=[None, ty_len, tx_len, 1])
+    # sch.bind(_ty, "threadIdx.y")
+    # sch.bind(_tx, "threadIdx.x")
+    # sch.vectorize(_vec)
 
     sch.set_scope(rf, 0, "local")
     sch.decompose_reduction(rf, jo)
@@ -383,7 +384,7 @@ def main():
     funcs = {
         "fused_fused_decode4_NT_matmul9": fused_fused_decode4_NT_matmul9,
         "fused_fused_decode2_NT_matmul6": fused_fused_decode2_NT_matmul6,
-        # "fused_fused_decode5_fused_NT_matmul10_add1": fused_fused_decode5_fused_NT_matmul10_add1,
+        "fused_fused_decode5_fused_NT_matmul10_add1": fused_fused_decode5_fused_NT_matmul10_add1,
         "fused_fused_decode3_fused_NT_matmul8_add1": fused_fused_decode3_fused_NT_matmul8_add1,
     }
     arg_list = sys.argv[1:]
@@ -412,7 +413,7 @@ def main():
             prepare_args(best_mod, {"n": 256}, data_path),
             run_only,
         )
-        export_source(best_mod, name)
+        # export_source(best_mod, name)
         # np.testing.assert_allclose(
         #     ret_dlight.numpy(), ret_best.numpy(), atol=1e-2, rtol=1e-3
         # )
@@ -422,7 +423,7 @@ def main():
             prepare_args(update_mod, {"n": 256}, data_path),
             run_only,
         )
-        # export_source(update_mod["main"])
+        export_source(update_mod, name)
 
 
 if __name__ == "__main__":
