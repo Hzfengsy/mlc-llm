@@ -66,14 +66,14 @@ def argparse_postproc_common(args: argparse.Namespace) -> None:
             config = json.load(i_f)
             args.model_category = config["model_type"]
         model_path_lower = args.model_path.lower()
-        if "rwkv" in model_path_lower and "5" in model_path_lower:
+        if "rwkv" in model_path_lower and "-5" in model_path_lower:
             args.model_category = "rwkv5"
         elif "rwkv" in model_path_lower and "world" in model_path_lower:
             args.model_category = "rwkv_world"
     except Exception:
         args.model_category = ""
     model = args.model.lower()
-    if "rwkv" in model and "5" in model:
+    if "rwkv" in model and "-5" in model:
         model = "rwkv5"
     elif "rwkv" in model and "world" in model:
         model = "rwkv_world"

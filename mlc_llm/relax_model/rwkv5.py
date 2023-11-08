@@ -284,9 +284,10 @@ class RWKV_Attention(nn.Module):
         self.ln_x = RWKV_GroupNorm(self.hidden_size // self.head_size, self.hidden_size)
 
     def forward(self, x: Expr, state: Expr) -> Expr:
+        print('x.struct_info.shape: ', x.struct_info.shape)
         H = self.num_attention_heads
         S = x.struct_info.shape[-1] // H
-        T = x.struct_info.shape[-1]
+        T = x.struct_info.shape[0]
         # Load current state
         ones = nn.emit(relax.op.ones((self.hidden_size,), self.dtype))
         index = self.index
@@ -310,12 +311,10 @@ class RWKV_Attention(nn.Module):
             r = nn.emit(op.reshape(op.astype(self.receptance(xr), "float32"), shape=[H, 1, S]))
             k = nn.emit(op.reshape(op.astype(self.key(xk), "float32"), shape=[H, S, 1]))
             v = nn.emit(op.reshape(op.astype(self.value(xv), "float32"), shape=[H, 1, S]))
-            g = nn.emit(op.reshape(g, shape=[1, H*S]))
         else:
             r = nn.emit(op.reshape(op.astype(self.receptance(xr), "float32"), shape=[H, T, S]))
             k = nn.emit(op.reshape(op.astype(self.key(xk), "float32"), shape=[H, S, T]))
             v = nn.emit(op.reshape(op.astype(self.value(xv), "float32"), shape=[H, T, S]))
-            g = nn.emit(op.reshape(g, shape=[T, H*S]))
         
 
         # https://github.com/BBuf/RWKV-World-HF-Tokenizer/blob/main/rwkv_world_v5_model/modeling_rwkv5.py#L88
@@ -325,7 +324,7 @@ class RWKV_Attention(nn.Module):
             # out = torch.empty((T, H, S), dtype=receptance.dtype, device=receptance.device)
             tmp = []
             # for t in range(T):
-            for t in range(T.value):
+            for t in range(T):
                 # rt = receptance[:,t:t+1,:]
                 # kt = key[:,:,t:t+1]
                 # vt = value[:,t:t+1,:]
@@ -343,9 +342,13 @@ class RWKV_Attention(nn.Module):
             # out = F.group_norm(out, num_groups=H, weight=lxw, bias=lxb)
             # out = out.to(dtype=hidden.dtype) * gate
             # out = out @ ow
+            print('out1.shape', out.struct_info.shape)
             out = nn.emit(op.reshape(out, shape=[T, H*S]))
+            print('out2.shape', out.struct_info.shape)
             out = nn.emit(op.nn.group_norm(out, self.ln_x.weight, self.ln_x.bias, self.ln_x.num_groups, channel_axis=-2, axes=-1, epsilon=self.eps))
-            out = nn.emit(op.astype(out, self.dtype) * g)
+            print('out3.shape', out.struct_info.shape)
+            out = nn.emit(op.multiply(op.astype(out, self.dtype), g))
+            print('out4.shape', out.struct_info.shape)
             out = nn.emit(self.output(out))
         else:
             # a = key @ value
@@ -360,7 +363,7 @@ class RWKV_Attention(nn.Module):
             saved_kv = nn.emit(a + self.time_decay * saved_kv)
             out = nn.emit(op.flatten(out))
             out = nn.emit(op.squeeze(op.nn.group_norm(op.expand_dims(out, 0), self.ln_x.weight, self.ln_x.bias, self.ln_x.num_groups, channel_axis=-2, axes=-1, epsilon=self.eps), 0))
-            out = nn.emit(op.astype(out, self.dtype) * g)
+            out = nn.emit(op.multiply(op.astype(out, self.dtype), g))
             out = nn.emit(self.output(out))
 
         if not is_one(context_length):
@@ -409,10 +412,7 @@ class RWKVLayer(nn.Module):
         if self.index == 0:
             x = self.pre_ln(x)
         att, att_state = self.attention(self.ln1(x), state)
-        print('att.shape: ', att.struct_info.shape)
-        print('x.shape: ', x.struct_info.shape)
         x = nn.emit(x + att)
-        print('x.shape: ', x.struct_info.shape)
         ffn, ffn_state = self.feed_forward(self.ln2(x), state)
         x = nn.emit(x + ffn)
         if self.rescale_every > 0 and (self.index + 1) % self.rescale_every == 0:
