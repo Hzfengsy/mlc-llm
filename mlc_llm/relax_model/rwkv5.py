@@ -316,55 +316,8 @@ class RWKV_Attention(nn.Module):
             k = nn.emit(op.reshape(op.astype(self.key(xk), "float32"), shape=[H, S, T]))
             v = nn.emit(op.reshape(op.astype(self.value(xv), "float32"), shape=[H, T, S]))
         
-
-        # https://github.com/BBuf/RWKV-World-HF-Tokenizer/blob/main/rwkv_world_v5_model/modeling_rwkv5.py#L88
-        # time_decay = torch.exp(-torch.exp(time_decay.float())).reshape(-1,1,1).reshape(n_head, -1, 1)
-        # time_first = time_first.float().reshape(-1,1,1).reshape(n_head, -1, 1)
-        if not is_one(context_length):
-            # out = torch.empty((T, H, S), dtype=receptance.dtype, device=receptance.device)
-            tmp = []
-            # for t in range(T):
-            for t in range(T):
-                # rt = receptance[:,t:t+1,:]
-                # kt = key[:,:,t:t+1]
-                # vt = value[:,t:t+1,:]
-                rt = nn.emit_te(_te_get_receptance, r, t)
-                kt = nn.emit_te(_te_get_key, k, t)
-                vt = nn.emit_te(_te_get_value, v, t)
-                # at = kt @ vt
-                # out[t] = (rt @ (time_first * at + state.squeeze(0))).squeeze(1)
-                # state = at + time_decay * state
-                at = nn.emit(op.matmul(kt, vt))
-                tmp.append(nn.emit(op.squeeze(op.matmul(rt, op.add(self.time_faaaa * at, op.squeeze(saved_kv, 0))), 1)))
-                saved_kv = nn.emit(at + self.time_decay * saved_kv)
-            out = nn.emit(relax.op.concat(tmp, axis=0))
-            # out = out.reshape(T, H*S)
-            # out = F.group_norm(out, num_groups=H, weight=lxw, bias=lxb)
-            # out = out.to(dtype=hidden.dtype) * gate
-            # out = out @ ow
-            print('out1.shape', out.struct_info.shape)
-            out = nn.emit(op.reshape(out, shape=[T, H*S]))
-            print('out2.shape', out.struct_info.shape)
-            out = nn.emit(op.nn.group_norm(out, self.ln_x.weight, self.ln_x.bias, self.ln_x.num_groups, channel_axis=-2, axes=-1, epsilon=self.eps))
-            print('out3.shape', out.struct_info.shape)
-            out = nn.emit(op.multiply(op.astype(out, self.dtype), g))
-            print('out4.shape', out.struct_info.shape)
-            out = nn.emit(self.output(out))
-        else:
-            # a = key @ value
-            # out = receptance @ (time_first * a + state.squeeze(0))
-            # state = a + time_decay * state
-            # out = out.flatten()
-            # out = F.group_norm(out.unsqueeze(0), num_groups=H, weight=lxw, bias=lxb).squeeze(0)
-            # out = out.to(dtype=hidden.dtype) * gate
-            # out = out @ ow
-            a = nn.emit(op.matmul(k, v))
-            out = nn.emit(op.matmul(r, op.add(self.time_faaaa * a, op.squeeze(saved_kv, 0))))
-            saved_kv = nn.emit(a + self.time_decay * saved_kv)
-            out = nn.emit(op.flatten(out))
-            out = nn.emit(op.squeeze(op.nn.group_norm(op.expand_dims(out, 0), self.ln_x.weight, self.ln_x.bias, self.ln_x.num_groups, channel_axis=-2, axes=-1, epsilon=self.eps), 0))
-            out = nn.emit(op.multiply(op.astype(out, self.dtype), g))
-            out = nn.emit(self.output(out))
+        # TODO: add rwkv5 tir here
+        
 
         if not is_one(context_length):
             x = nn.emit_te(_te_get_last_x, x)
