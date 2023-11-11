@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from typing import List, Literal, Tuple
 
-from tvm import relax, te, tir
+from tvm import relax, te, tir, topi
 from tvm.relax import Expr, op
 from tvm.relax.op.nn import silu, group_norm
 from tvm.relax.testing import nn
@@ -123,6 +123,42 @@ def _te_get_key(x: te.Tensor, t):
 def _te_get_value(x: te.Tensor, t):
     h, t, s = x.shape
     return te.compute((h, 1, s), lambda i, _, j: x[i, t, j])
+
+
+# https://github.com/BlinkDL/ChatRWKV/blob/main/rwkv_pip_package/src/rwkv/cuda/rwkv5.cu#L8-L72
+def create_wkv5_func(hidden_size: int, head_size: int, H: int, T: int, dtype: str, out_dtype: str):
+    @T.prim_func
+    def wkv_func(
+        r: T.handle,
+        k: T.handle,
+        v: T.handle,
+        time_decay: T.handle,
+        time_first: T.handle,
+        saved_kv: T.handle,
+        wkv: T.handle,
+        out_kv: T.handle,
+    ):
+        T.func_attr({"op_pattern": 8, "tir.noalias": True, "tir.is_scheduled": 1})
+        context_length = T.int64()
+        R = T.match_buffer(r, (context_length, hidden_size), dtype=dtype)
+        K = T.match_buffer(k, (context_length, hidden_size), dtype=dtype)
+        V = T.match_buffer(v, (context_length, hidden_size), dtype=dtype)
+        TimeDecay = T.match_buffer(time_decay, (H, head_size, 1), dtype=dtype)
+        TimeFirst = T.match_buffer(time_first, (H, head_size, 1), dtype=dtype)
+        SavedKV = T.match_buffer(saved_kv, (1, H, hidden_size // H, hidden_size // H), dtype=dtype)
+        WKV = T.match_buffer(wkv, (1, context_length, hidden_size), dtype=out_dtype)
+        OutKV = T.match_buffer(out_kv, (1, H, hidden_size // H, hidden_size // H), dtype=dtype)
+
+        KV = T.alloc_buffer((H, hidden_size // H, hidden_size // H), dtype=dtype, scope="local")
+
+        for bx in T.thread_binding(hidden_size // 32, thread="blockIdx.x"):
+            for tx in T.thread_binding(32, thread="threadIdx.x"):
+                # TODO
+                
+        
+                    
+
+    return wkv_func
 
 class RWKV_Embedding(nn.Module):
     def __init__(self, num_embeddings, embedding_dim, dtype):
@@ -312,12 +348,47 @@ class RWKV_Attention(nn.Module):
             k = nn.emit(op.reshape(op.astype(self.key(xk), "float32"), shape=[H, S, 1]))
             v = nn.emit(op.reshape(op.astype(self.value(xv), "float32"), shape=[H, 1, S]))
         else:
-            r = nn.emit(op.reshape(op.astype(self.receptance(xr), "float32"), shape=[H, T, S]))
-            k = nn.emit(op.reshape(op.astype(self.key(xk), "float32"), shape=[H, S, T]))
-            v = nn.emit(op.reshape(op.astype(self.value(xv), "float32"), shape=[H, T, S]))
+            r = nn.emit(op.astype(self.receptance(xr), "float32"))
+            k = nn.emit(op.astype(self.key(xk), "float32"))
+            v = nn.emit(op.astype(self.value(xv), "float32"))
         
-        # TODO: add rwkv5 tir here
-        
+        print('r.shape: ', r.struct_info.shape)
+        print('k.shape: ', k.struct_info.shape)
+        print('v.shape: ', v.struct_info.shape)
+        print('w.shape: ', self.time_decay.struct_info.shape)
+        print('u.shape: ', self.time_faaaa.struct_info.shape)
+        if not is_one(context_length):
+            # TODO: add rwkv5 tir here
+            # out, s = self.RUN_RWKV_5(1, T, self.args.n_att, H, s.transpose(-1,-2).contiguous(), r, k, v, w=t_decay, u=t_first)
+            # s = s.transpose(-1,-2)
+            # s means saved_kv here
+            saved_kv = nn.emit(topi.transpose(saved_kv, (0, 1, 3, 2)))
+            gv = bb.add_func(create_wkv5_func(hidden_size, self.head_size, H, T, "float32", self.dtype), "wkv")
+            ret = nn.emit(
+                relax.call_tir(
+                    gv,
+                    [r, k, v, self.time_decay, self.time_faaaa, saved_kv],
+                    [
+                        R.Tensor((1, context_length, hidden_size), self.dtype),
+                        R.Tensor((1, self.num_attention_heads, hidden_size // self.num_attention_heads, hidden_size // self.num_attention_heads), "float32"),
+                    ],
+                )
+            )
+        else:
+            # a = key @ value
+            # out = receptance @ (time_first * a + state.squeeze(0))
+            # state = a + time_decay * state
+            # out = out.flatten()
+            # out = F.group_norm(out.unsqueeze(0), num_groups=H, weight=lxw, bias=lxb).squeeze(0)
+            # out = out.to(dtype=hidden.dtype) * gate
+            # out = out @ ow
+            a = nn.emit(op.matmul(k, v))
+            out = nn.emit(op.matmul(r, op.add(self.time_faaaa * a, op.squeeze(saved_kv, 0))))
+            saved_kv = nn.emit(a + self.time_decay * saved_kv)
+            out = nn.emit(op.flatten(out))
+            out = nn.emit(op.squeeze(op.nn.group_norm(op.expand_dims(out, 0), self.ln_x.weight, self.ln_x.bias, self.ln_x.num_groups, channel_axis=-2, axes=-1, epsilon=self.eps), 0))
+            out = nn.emit(op.multiply(op.astype(out, self.dtype), g))
+            out = nn.emit(self.output(out))
 
         if not is_one(context_length):
             x = nn.emit_te(_te_get_last_x, x)
@@ -625,6 +696,9 @@ def get_model(args, hf_config):
 
         num_attention_heads = config.hidden_size // config.head_size
         # convert dtype
+        # https://github.com/BBuf/RWKV-World-HF-Tokenizer/blob/main/rwkv_world_v5_model/modeling_rwkv5.py#L88
+        # time_decay = torch.exp(-torch.exp(time_decay.float())).reshape(-1,1,1).reshape(n_head, -1, 1)
+        # time_first = time_first.float().reshape(-1,1,1).reshape(n_head, -1, 1)
         if "time_decay" in torch_pname:  # need fp32 for this
             return [(torch_pname, np.exp(-np.exp(torch_param.astype("float32")))).reshape(-1,1,1).reshape(num_attention_heads, -1, 1)]
         elif "time_faaaa" in torch_pname:
