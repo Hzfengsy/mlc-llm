@@ -124,64 +124,7 @@ def _te_get_value(x: te.Tensor, t):
     h, t, s = x.shape
     return te.compute((h, 1, s), lambda i, _, j: x[i, t, j])
 
-# template <typename F>
-# __global__ void kernel_forward(const int B, const int T, const int C, const int H, float *__restrict__ _state,
-#                                const F *__restrict__ const _r, const F *__restrict__ const _k, const F *__restrict__ const _v, const float *__restrict__ _w, const F *__restrict__ _u,
-#                                F *__restrict__ const _y)
-# {
-#     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
-#     const int _b = idx / C;
-#     const int _h = (idx / _N_) % H;
-#     const int _i = idx % _N_;
-
-#     const int _o0 = _b*T*C + _h*_N_;
-#     const int _o1 = _h*_N_;
-#     const F *__restrict__ const k = _k + _o0;
-#     const F *__restrict__ const v = _v + _o0 + _i;
-#     const F *__restrict__ const r = _r + _o0;
-#     F *__restrict__ const y = _y + _o0 + _i;
-#     _state += _h*_N_*_N_ + _i*_N_; // wrong if B > 1 !!!
-    
-#     float state[_N_];
-#     #pragma unroll
-#     for (int j = 0; j < _N_; j++)
-#         state[j] = _state[j];
-    
-#     for (int _t = 0; _t < T; _t++)
-#     {
-#         const int tt = _t*C;
-#         const F vv = v[tt];
-#         F yy = 0;
-
-#         #pragma unroll
-#         for (int _j = 0; _j < _N_; _j++) 
-#         {
-#             const int j = tt + _j;
-#             const int m = _o1 + _j;
-
-#             const float x = k[j] * vv;
-#             const float s = state[_j];
-            
-#             yy += r[j] * (_u[m] * x + s);
-#             state[_j] = s * _w[m] + x;
-#         }
-#         y[tt] = yy;
-#     }
-#     #pragma unroll
-#     for (int j = 0; j < _N_; j++)
-#         _state[j] = state[j];
-# }
-# void cuda_forward_fp16(int B, int T, int C, int H, float *state, fp16 *r, fp16 *k, fp16 *v, float *w, fp16 *u, fp16 *y)
-# {
-#     assert(H*_N_ == C);
-#     const int SIZE = B*C;
-#     dim3 threadsPerBlock(min(SIZE, 32));
-#     assert(SIZE % threadsPerBlock.x == 0);
-#     dim3 numBlocks(SIZE / threadsPerBlock.x);
-#     kernel_forward<<<numBlocks, threadsPerBlock>>>(B, T, C, H, state, r, k, v, w, u, y);
-# }
-
-# https://github.com/BlinkDL/ChatRWKV/blob/main/rwkv_pip_package/src/rwkv/cuda/rwkv5.cu#L8-L72
+# https://github.com/GiantPandaCV/mlc-llm/pull/1/files#diff-e39fd9584b9046e39f007d1c432b5c90703959d148de2e8eca29f08231c9fa57R127-R212
 def create_wkv5_func(hidden_size: int, head_size: int, H: int, T: int, dtype: str, out_dtype: str):
     @T.prim_func
     def wkv_func(
