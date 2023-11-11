@@ -125,37 +125,38 @@ def _te_get_value(x: te.Tensor, t):
     return te.compute((h, 1, s), lambda i, _, j: x[i, t, j])
 
 # https://github.com/GiantPandaCV/mlc-llm/pull/1/files#diff-e39fd9584b9046e39f007d1c432b5c90703959d148de2e8eca29f08231c9fa57R127-R212
-def create_wkv5_func(hidden_size: int, head_size: int, H: int, T: int, dtype: str, out_dtype: str):
+def create_wkv5_func(B: T.int32, T_dim: T.int32, C: T.int32, H: T.int32, dtype: str, out_dtype: str):
     @T.prim_func
     def wkv_func(
         r: T.handle,
         k: T.handle,
         v: T.handle,
-        time_decay: T.handle,
-        time_first: T.handle,
-        saved_kv: T.handle,
-        wkv: T.handle,
-        out_kv: T.handle,
+        w: T.handle,
+        u: T.handle,
+        state: T.handle,
+        out: T.handle
     ):
-        T.func_attr({"op_pattern": 8, "tir.noalias": True, "tir.is_scheduled": 1})
-        context_length = T.int64()
-        R = T.match_buffer(r, (context_length, hidden_size), dtype=dtype)
-        K = T.match_buffer(k, (context_length, hidden_size), dtype=dtype)
-        V = T.match_buffer(v, (context_length, hidden_size), dtype=dtype)
-        TimeDecay = T.match_buffer(time_decay, (H, head_size, 1), dtype=dtype)
-        TimeFirst = T.match_buffer(time_first, (H, head_size, 1), dtype=dtype)
-        SavedKV = T.match_buffer(saved_kv, (1, H, hidden_size // H, hidden_size // H), dtype=dtype)
-        WKV = T.match_buffer(wkv, (1, context_length, hidden_size), dtype=out_dtype)
-        OutKV = T.match_buffer(out_kv, (1, H, hidden_size // H, hidden_size // H), dtype=dtype)
+        # Define buffer variables
+        r_buf = T.match_buffer(r, (B, T_dim, H, C // H), dtype=dtype,)
+        k_buf = T.match_buffer(k, (B, T_dim, H, C // H), dtype=dtype,)
+        v_buf = T.match_buffer(v, (B, T_dim, H, C // H), dtype=dtype,)
+        w_buf = T.match_buffer(w, (H, C // H), dtype=dtype,)
+        u_buf = T.match_buffer(u, (H, C // H), dtype=dtype,)
+        state_buf = T.match_buffer(state, (B, H, C // H, C // H), dtype=dtype,)
+        out_buf = T.match_buffer(out, (B, T_dim, H, C // H), dtype=out_dtype,)
 
-        KV = T.alloc_buffer((H, hidden_size // H, hidden_size // H), dtype=dtype, scope="local")
+        # Initialize out_buf with zeros
+        for i, j, k, l in T.grid(B, T_dim, H, C // H):
+            out_buf[i, j, k, l] = 0
 
-        for bx in T.thread_binding(hidden_size // 32, thread="blockIdx.x"):
-            for tx in T.thread_binding(32, thread="threadIdx.x"):
-                # TODO
-                
-        
-                    
+        # Define computation
+        for b, h in T.grid(B, H):
+            for t in T.serial(T_dim):
+                for i, j in T.grid(C // H, C // H):
+                    x = k_buf[b, t, h, j] * v_buf[b, t, h, i]
+                    s = state_buf[b, h, i, j]
+                    out_buf[b, t, h, i] += r_buf[b, t, h, j] * (u_buf[h, j] * x + s)
+                    state_buf[b, h, i, j] = s * w_buf[h, j] + x
 
     return wkv_func
 
@@ -230,6 +231,8 @@ class RWKV_FFN(nn.Module):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.dtype = config.dtype
+        self.head_size = config.head_size
+        self.num_attention_heads = self.hidden_size // self.head_size
         self.index = index
         intermediate_size = (
                 config.intermediate_size if config.intermediate_size is not None else int((config.hidden_size * 3.5) // 32 * 32)
@@ -255,7 +258,7 @@ class RWKV_FFN(nn.Module):
         context_length = x.struct_info.shape[0]
         hidden_size = self.hidden_size
 
-        saved_x = _load_state(state[offset], hidden_size, self.dtype)
+        saved_x = _load_state(state[offset], hidden_size, self.num_attention_heads, self.dtype, kv=False)
         if not is_one(context_length):
             saved_x = nn.emit_te(_te_concat_saved_x, saved_x, x)
         ones = nn.emit(relax.op.ones((hidden_size,), self.dtype))
@@ -284,10 +287,10 @@ class RWKV_Attention(nn.Module):
         self.num_attention_heads = self.hidden_size // self.head_size
         self.eps = config.layer_norm_epsilon
         self.time_decay = nn.Parameter(
-            (self.num_attention_heads, self.head_size, 1), dtype="float32", name=f"att_{index}_time_decay"
+            (self.num_attention_heads, self.head_size), dtype="float32", name=f"att_{index}_time_decay"
         )
         self.time_faaaa = nn.Parameter(
-            (self.num_attention_heads, self.head_size, 1), dtype="float32", name=f"att_{index}_time_faaaa"
+            (self.num_attention_heads, self.head_size), dtype="float32", name=f"att_{index}_time_faaaa"
         )
         self.time_mix_gate = nn.Parameter(
             (self.hidden_size, ), dtype=config.dtype, name=f"att_{index}_time_mix_gate"
@@ -319,15 +322,17 @@ class RWKV_Attention(nn.Module):
         self.ln_x = RWKV_GroupNorm(self.hidden_size // self.head_size, self.hidden_size)
 
     def forward(self, x: Expr, state: Expr) -> Expr:
-        print('x.struct_info.shape: ', x.struct_info.shape)
         H = self.num_attention_heads
         S = x.struct_info.shape[-1] // H
         T = x.struct_info.shape[0]
         # Load current state
-        ones = nn.emit(relax.op.ones((self.hidden_size,), self.dtype))
         index = self.index
         hidden_size = self.hidden_size
+        C = hidden_size
+        N = C // H
+        ones = nn.emit(relax.op.ones((self.hidden_size,), self.dtype))
         context_length = x.struct_info.shape[0]
+        bb = relax.BlockBuilder.current()
 
         saved_kv = _load_state(state[index * 3 + State.ATT_KV], hidden_size, self.num_attention_heads, "float32", kv=True)
         saved_x = _load_state(state[index * 3 + State.ATT_X], hidden_size, self.num_attention_heads, self.dtype, kv=False)
@@ -342,37 +347,38 @@ class RWKV_Attention(nn.Module):
         xg = nn.emit(x * self.time_mix_gate + saved_x * (ones - self.time_mix_gate))
         g = nn.emit(silu(self.gate(xg)))
 
-        if x.struct_info.shape[1] == 1:
+        if is_one(context_length):
             r = nn.emit(op.reshape(op.astype(self.receptance(xr), "float32"), shape=[H, 1, S]))
             k = nn.emit(op.reshape(op.astype(self.key(xk), "float32"), shape=[H, S, 1]))
             v = nn.emit(op.reshape(op.astype(self.value(xv), "float32"), shape=[H, 1, S]))
         else:
-            r = nn.emit(op.astype(self.receptance(xr), "float32"))
-            k = nn.emit(op.astype(self.key(xk), "float32"))
-            v = nn.emit(op.astype(self.value(xv), "float32"))
-        
-        print('r.shape: ', r.struct_info.shape)
-        print('k.shape: ', k.struct_info.shape)
-        print('v.shape: ', v.struct_info.shape)
-        print('w.shape: ', self.time_decay.struct_info.shape)
-        print('u.shape: ', self.time_faaaa.struct_info.shape)
+            r = nn.emit(op.reshape(op.astype(self.receptance(xr), "float32"), shape=[1, T, H, N]))
+            k = nn.emit(op.reshape(op.astype(self.key(xk), "float32"), shape=[1, T, H, N]))
+            v = nn.emit(op.reshape(op.astype(self.value(xv), "float32"), shape=[1, T, H, N]))
+
         if not is_one(context_length):
             # TODO: add rwkv5 tir here
             # out, s = self.RUN_RWKV_5(1, T, self.args.n_att, H, s.transpose(-1,-2).contiguous(), r, k, v, w=t_decay, u=t_first)
             # s = s.transpose(-1,-2)
             # s means saved_kv here
-            saved_kv = nn.emit(topi.transpose(saved_kv, (0, 1, 3, 2)))
-            gv = bb.add_func(create_wkv5_func(hidden_size, self.head_size, H, T, "float32", self.dtype), "wkv")
+            w = nn.emit(op.reshape(self.time_decay, shape=([H, N])))
+            u = nn.emit(op.reshape(self.time_faaaa, shape=([H, N])))
+            gv = bb.add_func(create_wkv5_func(1, T, hidden_size, H, "float32", self.dtype), "wkv")
             ret = nn.emit(
                 relax.call_tir(
                     gv,
-                    [r, k, v, self.time_decay, self.time_faaaa, saved_kv],
+                    [r, k, v, w, u, saved_kv],
                     [
                         R.Tensor((1, context_length, hidden_size), self.dtype),
                         R.Tensor((1, self.num_attention_heads, hidden_size // self.num_attention_heads, hidden_size // self.num_attention_heads), "float32"),
                     ],
                 )
             )
+            saved_kv = ret[1]
+            out = nn.emit(op.reshape(ret[0], shape=([T, H*N])))
+            out = nn.emit(op.squeeze(op.nn.group_norm(op.astype(op.expand_dims(out, 0), "float32"), self.ln_x.weight, self.ln_x.bias, self.ln_x.num_groups, channel_axis=-1, axes=[0, 1], epsilon=self.eps), 0))
+            out = nn.emit(op.multiply(op.astype(out, self.dtype), g))
+            out = nn.emit(self.output(out))
         else:
             # a = key @ value
             # out = receptance @ (time_first * a + state.squeeze(0))
@@ -380,12 +386,12 @@ class RWKV_Attention(nn.Module):
             # out = out.flatten()
             # out = F.group_norm(out.unsqueeze(0), num_groups=H, weight=lxw, bias=lxb).squeeze(0)
             # out = out.to(dtype=hidden.dtype) * gate
-            # out = out @ ow
+            # out = out @ ow\
             a = nn.emit(op.matmul(k, v))
-            out = nn.emit(op.matmul(r, op.add(self.time_faaaa * a, op.squeeze(saved_kv, 0))))
-            saved_kv = nn.emit(a + self.time_decay * saved_kv)
+            out = nn.emit(op.matmul(r, op.add(op.reshape(self.time_faaaa, shape=[H ,-1, 1]) * a, op.squeeze(saved_kv, 0))))
+            saved_kv = nn.emit(a + op.reshape(self.time_decay, shape=[H ,-1, 1]) * saved_kv)
             out = nn.emit(op.flatten(out))
-            out = nn.emit(op.squeeze(op.nn.group_norm(op.expand_dims(out, 0), self.ln_x.weight, self.ln_x.bias, self.ln_x.num_groups, channel_axis=-2, axes=-1, epsilon=self.eps), 0))
+            out = nn.emit(op.squeeze(op.nn.group_norm(op.astype(op.expand_dims(out, 0), "float32"), self.ln_x.weight, self.ln_x.bias, self.ln_x.num_groups, channel_axis=-1, axes=[0], epsilon=self.eps), 0))
             out = nn.emit(op.multiply(op.astype(out, self.dtype), g))
             out = nn.emit(self.output(out))
 
@@ -676,6 +682,7 @@ def get_model(args, hf_config):
             return [pname]
 
     def f_convert_param_bkwd(torch_pname: str, torch_param):
+        print(torch_pname, torch_param.shape, torch_param.dtype)
         # torch_param: numpy.ndarray
         import numpy as np  # pylint: disable=import-outside-toplevel
 
@@ -690,18 +697,20 @@ def get_model(args, hf_config):
                 torch_param = torch_param / (2 ** (layer_id // config.rescale_every))
 
         # reshape
+        if "time_mix_" in torch_pname:
+            torch_param = torch_param.squeeze().squeeze()
+        
         if "ln_x" in torch_pname:
-            torch_param = torch_param.astype("float32")
+            return [(torch_pname, torch_param.astype("float32"))]
 
-        num_attention_heads = config.hidden_size // config.head_size
         # convert dtype
         # https://github.com/BBuf/RWKV-World-HF-Tokenizer/blob/main/rwkv_world_v5_model/modeling_rwkv5.py#L88
         # time_decay = torch.exp(-torch.exp(time_decay.float())).reshape(-1,1,1).reshape(n_head, -1, 1)
         # time_first = time_first.float().reshape(-1,1,1).reshape(n_head, -1, 1)
         if "time_decay" in torch_pname:  # need fp32 for this
-            return [(torch_pname, np.exp(-np.exp(torch_param.astype("float32")))).reshape(-1,1,1).reshape(num_attention_heads, -1, 1)]
+            return [(torch_pname, np.exp(-np.exp(torch_param.astype("float32"))))]
         elif "time_faaaa" in torch_pname:
-            return [(torch_pname, torch_param.astype("float32")).reshape(-1,1,1).reshape(num_attention_heads, -1, 1)]
+            return [(torch_pname, torch_param.astype("float32"))]
         else:
             return [(torch_pname, torch_param.astype(config.dtype))]
 
