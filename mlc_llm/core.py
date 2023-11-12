@@ -454,6 +454,7 @@ def mod_transform_before_build(
     args: argparse.Namespace,
     config: Dict,
 ) -> tvm.IRModule:
+    utils.debug_dump_script(mod, "original_mod.py", args)
     """First-stage: Legalize ops and trace"""
     if args.model.startswith("minigpt"):
         model_names = ["embed"]
