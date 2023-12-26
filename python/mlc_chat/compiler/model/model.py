@@ -11,6 +11,7 @@ from .gpt_bigcode import gpt_bigcode_loader, gpt_bigcode_model, gpt_bigcode_quan
 from .gpt_neox import gpt_neox_loader, gpt_neox_model, gpt_neox_quantization
 from .llama import llama_loader, llama_model, llama_quantization
 from .mistral import mistral_loader, mistral_model, mistral_quantization
+from .rwkv4 import rwkv4_loader, rwkv4_model, rwkv4_quantization
 
 ModelConfig = Any
 """A ModelConfig is an object that represents a model architecture. It is required to have
@@ -120,6 +121,18 @@ MODELS: Dict[str, Model] = {
         quantize={
             "no-quant": gpt_bigcode_quantization.no_quant,
             "group-quant": gpt_bigcode_quantization.group_quant,
+        },
+    ),
+    "rwkv": Model(
+        name="rwkv",
+        model=rwkv4_model.RWKVForCasualLM,
+        config=rwkv4_model.RWKVConfig,
+        source={
+            "huggingface-torch": rwkv4_loader.huggingface
+        },
+        quantize={
+            "no-quant": rwkv4_quantization.no_quant,
+            "group-quant": rwkv4_quantization.group_quant,
         },
     ),
 }

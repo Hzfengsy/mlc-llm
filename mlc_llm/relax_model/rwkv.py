@@ -253,7 +253,6 @@ class RWKV_FFN(nn.Module):
 
         r = nn.emit(op.sigmoid(self.receptance(xr)))
         xv = nn.emit(op.square(op.nn.relu(self.key(xk))))
-
         return nn.emit(r * self.value(xv)), [saved_x]
 
 

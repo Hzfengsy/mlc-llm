@@ -1,6 +1,8 @@
 """Generator of mlc-chat-config.json and tokenizer configuration."""
 import dataclasses
 import json
+import os
+import re
 import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -117,15 +119,21 @@ def gen_config(  # pylint: disable=too-many-locals,too-many-arguments,too-many-b
 
     # Step 3. Copy tokenizer configuration
     # 3.1. Copy over the files and populate mlc_chat_config
+    files_in_dir = os.listdir(config.parent)
     for filename in TOKENIZER_FILES:
-        file = config.parent / filename
-        if file.exists():
-            mlc_chat_config.tokenizer_files.append(filename)
-            dest = output / filename
-            shutil.copy(file, dest)
-            logger.info("%s tokenizer config: %s. Copying to %s", FOUND, file, bold(str(dest)))
-        else:
-            logger.info("%s tokenizer config: %s", NOT_FOUND, file)
+        regex = re.compile(filename)
+        matched_files = list(filter(regex.match, files_in_dir))
+        found = False
+        for matched_file in matched_files:
+            file = config.parent / matched_file
+            if file.exists():
+                found = True
+                mlc_chat_config.tokenizer_files.append(filename)
+                dest = output / matched_file
+                shutil.copy(file, dest)
+                logger.info("%s tokenizer config: %s. Copying to %s", FOUND, file, bold(str(dest)))
+        if not found:
+            logger.info("%s tokenizer config: %s", NOT_FOUND, filename)
     # 3.2. If we have `tokenizer.model` but not `tokenizer.json`, try convert it to
     # `tokenizer.json` with `transformers`.
     tokenizer_json_file = config.parent / "tokenizer.json"
@@ -163,6 +171,8 @@ TOKENIZER_FILES = [
     "merges.txt",
     "added_tokens.json",
     "tokenizer_config.json",
+    # RWKV support
+    r"rwkv_vocab.*\.txt",
 ]
 
 CONV_TEMPLATES = {

@@ -87,6 +87,7 @@ def _mlc_llm_pipeline(
                 # Phase 2. Lowering to TIR, inherited TVM Relax's official "zero" pipeline
                 _LogProgress("Lowering to TVM TIR kernels"),
                 tvm.relax.transform.LegalizeOps(),
+                tvm.transform.PrintIR(),
                 tvm.relax.transform.AnnotateTIROpPattern(),
                 tvm.relax.transform.FoldConstant(),
                 tvm.relax.transform.FuseOps(),
