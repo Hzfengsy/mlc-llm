@@ -44,7 +44,7 @@ def main(argv):
             "numbers (0-9), alphabets (A-Z, a-z) and underscore (_)."
         )
 
-    parser = ArgumentParser("MLC LLM Compiler")
+    parser = ArgumentParser("mlc_chat compile")
     parser.add_argument(
         "model",
         type=detect_mlc_chat_config,
@@ -101,6 +101,12 @@ def main(argv):
         default="",
         help=HELP["overrides"] + ' (default: "%(default)s")',
     )
+    parser.add_argument(
+        "--debug-dump-path",
+        type=str,
+        default=None,
+        help=HELP["debug_dump_path"] + " (default: %(default)s)",
+    )
     parsed = parser.parse_args(argv)
     target, build_func = detect_target_and_host(parsed.device, parsed.host)
     parsed.model_type = detect_model_type(parsed.model_type, parsed.model)
@@ -121,4 +127,5 @@ def main(argv):
         system_lib_prefix=parsed.system_lib_prefix,
         output=parsed.output,
         overrides=parsed.overrides,
+        debug_dump_path=parsed.debug_dump_path,
     )

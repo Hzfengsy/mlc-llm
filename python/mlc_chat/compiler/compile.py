@@ -2,7 +2,7 @@
 import dataclasses
 from io import StringIO
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from tvm import IRModule, relax, tir
 from tvm.ir.transform import Pass
@@ -34,6 +34,7 @@ class CompileArgs:  # pylint: disable=too-many-instance-attributes
     system_lib_prefix: str
     output: Path
     overrides: ModelConfigOverride
+    debug_dump_path: bool
 
     def __post_init__(self) -> None:
         self.opt.update(self.target)
@@ -50,6 +51,8 @@ class CompileArgs:  # pylint: disable=too-many-instance-attributes
         print(f"  {bold('--system-lib-prefix'):<25} \"{self.system_lib_prefix}\"", file=out)
         print(f"  {bold('--output'):<25} {self.output}", file=out)
         print(f"  {bold('--overrides'):<25} {self.overrides}", file=out)
+        # As it's debug only, no need to display
+        # print(f"  {bold('--debug-dump'):<25} {self.debug_dump}", file=out)
         print(out.getvalue().rstrip())
 
 
@@ -137,6 +140,7 @@ def _compile(args: CompileArgs, model_config: ConfigBase):
                 additional_tirs=additional_tirs,
                 ext_mods=ext_mods,
                 metadata=metadata,
+                debug_dump_path=args.debug_dump_path,
             ),
         )
     logger.info("Generated: %s", bold(str(args.output)))
@@ -152,6 +156,7 @@ def compile(  # pylint: disable=too-many-arguments,redefined-builtin
     system_lib_prefix: str,
     output: Path,
     overrides: ModelConfigOverride,
+    debug_dump_path: Optional[str] = None,
 ):
     """Compile a model given its configuration and quantization format to a specific target."""
     if "model_config" in config:
@@ -168,6 +173,7 @@ def compile(  # pylint: disable=too-many-arguments,redefined-builtin
         system_lib_prefix,
         output,
         overrides,
+        debug_dump_path,
     )
     args.display()
     _compile(args, model_config)
