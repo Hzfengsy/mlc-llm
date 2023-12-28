@@ -28,7 +28,7 @@ class RWKVConfig(ConfigBase):  # pylint: disable=too-many-instance-attributes
     rescale_every: int = 0
     layer_norm_epsilon: float = 1e-5
     context_window_size: int = -1  # RWKV does not have context window limitation.
-    prefill_chunk_size: int = -1  # RWKV does not have prefill chunk size.
+    prefill_chunk_size: int = 4096
     kwargs: Dict[str, Any] = dataclasses.field(default_factory=dict)
 
     def __post_init__(self):
