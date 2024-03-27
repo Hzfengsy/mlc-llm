@@ -3,6 +3,7 @@ This file specifies how MLC's Llama parameter maps from other formats, for examp
 PyTorch, HuggingFace safetensors.
 """
 import functools
+import torch
 
 import numpy as np
 
@@ -41,6 +42,13 @@ def huggingface(model_config: LlamaConfig, quantization: Quantization) -> Extern
 
     mapping = ExternMapping()
 
+    def svd_approximation(weight, rank, index):
+        if index < 31:
+            return weight
+        w = torch.Tensor(weight).cuda()
+        u, s, v = torch.linalg.svd(w, full_matrices=False)
+        return (u[:, :rank] @ torch.diag(s[:rank]) @ v[:rank]).cpu().numpy()
+
     for i in range(model_config.num_hidden_layers):
         # Add QKV in self attention
         attn = f"model.layers.{i}.self_attn"
@@ -62,6 +70,8 @@ def huggingface(model_config: LlamaConfig, quantization: Quantization) -> Extern
         mlp = f"model.layers.{i}.mlp"
         mlc_name = f"{mlp}.gate_up_proj.weight"
         mlc_param = named_parameters[mlc_name]
+        r = 32
+
         mapping.add_mapping(
             mlc_name,
             [
@@ -69,8 +79,22 @@ def huggingface(model_config: LlamaConfig, quantization: Quantization) -> Extern
                 f"{mlp}.up_proj.weight",
             ],
             functools.partial(
-                lambda gate, up, dtype: np.concatenate([gate, up], axis=0).astype(dtype),
+                lambda gate, up, dtype, r, i: np.concatenate(
+                    [svd_approximation(gate, r, i), svd_approximation(up, r, i)], axis=0
+                ).astype(dtype),
                 dtype=mlc_param.dtype,
+                r=r,
+                i=i,
+            ),
+        )
+        mapping.add_mapping(
+            f"{mlp}.down_proj.weight",
+            [f"{mlp}.down_proj.weight"],
+            functools.partial(
+                lambda x, dtype, r, i: svd_approximation(x, r, i).astype(dtype),
+                dtype=mlc_param.dtype,
+                r=r,
+                i=i,
             ),
         )
         # inv_freq is not used in the model
